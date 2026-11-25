@@ -1,0 +1,47 @@
+name: Weekly TV snapshot
+
+# Probes public iptv-org playlists and commits tvSnapshot.json to this repo.
+# Uses only the built-in GITHUB_TOKEN, so no personal token is needed.
+on:
+  schedule:
+    - cron: '0 20 * * 0' # Sunday 20:00 UTC = Monday 03:00 Vietnam
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: tv-snapshot
+  cancel-in-progress: true
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Build snapshot
+        env:
+          PROBE_CONCURRENCY: '20'
+          TV_SNAPSHOT_OUT: tvSnapshot.new.json
+        run: node build-tv-snapshot.mjs
+
+      - name: Check snapshot size
+        run: |
+          count=$(node -e "console.log(require('./tvSnapshot.new.json').length)")
+          echo "channels: $count"
+          if [ "$count" -lt 1000 ]; then echo "Snapshot too small, not publishing"; exit 1; fi
+          mv tvSnapshot.new.json tvSnapshot.json
+
+      - name: Commit
+        run: |
+          git config user.name "tv-snapshot-bot"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add tvSnapshot.json
+          git commit -m "TV snapshot $(date -u +%F)" || { echo "No changes"; exit 0; }
+          git push
